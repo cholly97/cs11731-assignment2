@@ -67,6 +67,11 @@ class Vocab( object ):
     def vocab_size( self ):
         return len( self.id2word ) - 1
 
+
+class CorpusReader( object ):
+
+    def 
+
     
 def random_embeddings( vocab_size, embed_size ):
     return nn.Embedding( vocab_size + 1, embed_size )

@@ -15,5 +15,3 @@ class GRUEncoder( nn.Module ):
         self.hidden_size = hidden_size // self.directional
         self.special_embeddings = nn.Embedding(  )
 
-
-
