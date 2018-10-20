@@ -67,6 +67,14 @@ class VocabEntry( object ):
     def vocab_size( self ):
         return len( self.id2word ) - 1
 
+    def add( self, word ):
+        if word not in selfword2id:
+            wid = self.word2id[word] = len( self.id2word )
+            self.id2word[wid] = word
+            return wid
+        else:
+            return self.word2id[ word ]
+
     @staticmethod
     def from_corpus(corpus, size, freq_cutoff=2):
         vocab_entry = VocabEntry()
