@@ -8,7 +8,7 @@ import numpy as np
 NUM_SPECIAL_SYM = 4
 PAD, SOS, EOS, UNK = 0,1,2,3
 
-class Vocab( object ):
+class VocabEntry( object ):
 
     def __init__( self, words ):
         """
@@ -67,10 +67,33 @@ class Vocab( object ):
     def vocab_size( self ):
         return len( self.id2word ) - 1
 
+    @staticmethod
+    def from_corpus(corpus, size, freq_cutoff=2):
+        vocab_entry = VocabEntry()
 
-class CorpusReader( object ):
+        word_freq = Counter(chain(*corpus))
+        valid_words = [w for w, v in word_freq.items() if v >= freq_cutoff]
+        # print('number of word types: {len(word_freq)}, number of word types w/ frequency >= {freq_cutoff}: {len(valid_words)}')
 
-    def 
+        top_k_words = sorted(valid_words, key=lambda w: word_freq[w], reverse=True)[:size]
+        for word in top_k_words:
+            vocab_entry.add(word)
+
+        return vocab_entry
+
+
+class Vocab(object):
+    def __init__(self, src_sents, tgt_sents, vocab_size, freq_cutoff):
+        assert len(src_sents) == len(tgt_sents)
+
+        print('initialize source vocabulary ..')
+        self.src = VocabEntry.from_corpus(src_sents, vocab_size, freq_cutoff)
+
+        print('initialize target vocabulary ..')
+        self.tgt = VocabEntry.from_corpus(tgt_sents, vocab_size, freq_cutoff)
+
+    def __repr__(self):
+        return 'Vocab(source %d words, target %d words)' % (len(self.src), len(self.tgt))
 
     
 def random_embeddings( vocab_size, embed_size ):
