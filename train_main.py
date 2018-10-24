@@ -160,7 +160,9 @@ def train(args):
     hist_valid_scores = []
     train_time = begin_time = time.time()
     print('begin Maximum Likelihood training')
-
+    
+    if not os.path.exists( args.save_path ):
+        os.mkdir( args.save_path )
     while True:
         epoch += 1
 
@@ -177,19 +179,19 @@ def train(args):
             model = s2t_model
             # (batch_size)
             train_step( s2s_model, s2s_optimizer, src_sents, src_sents )
-            print( "finish s2s" )
+            # print( "finish s2s" )
             train_step( t2t_model, t2t_optimizer, tgt_sents, tgt_sents )  
-            print( "finish t2t" )
+            # print( "finish t2t" )
             
             train_step( t2s_model, t2s_optimizer, tgt_sents, src_sents )
-            print( "finish t2s" )
-            loss = -train_step( model, s2t_optimizer, src_sents, tgt_sents )
+            # print( "finish t2s" )
+            loss = train_step( model, s2t_optimizer, src_sents, tgt_sents )
 
             train_step_backtranslate( s2t_model, s2t_optimizer, src_sents, 2 )
-            print( "finish s2t back" )
-            train_step_backtranslate( t2s_model, t2s_optimizer, tgt_sents, 0.8 )
-            print( "finish t2s back" )
-            os.system( "nvidia-smi" )
+            # print( "finish s2t back" )
+            train_step_backtranslate( t2s_model, t2s_optimizer, tgt_sents, 0.6 )
+            # print( "finish t2s back" )
+            # os.system( "nvidia-smi" )
             report_loss += loss
             cum_loss += loss
 

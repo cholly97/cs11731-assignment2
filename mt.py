@@ -4,6 +4,7 @@ import torch
 import torch.nn as nn
 from torch.autograd import Variable
 import vocab 
+from util import *
 """
 Semisupervised mt from one language to another
 """
@@ -169,6 +170,36 @@ class MT( object ):
                         translations[sentence_index] = hypotheses[sentence_index][1]
                         translation_scores[sentence_index] = hypotheses[sentence_index][0]
         return self.tar_dict.ids2sentences(translations)
+    
+    def evaluate_ppl(self, dev_data, batch_size: int=32):
+        """
+        Evaluate perplexity on dev sentences
+
+        Args:
+            dev_data: a list of dev sentences
+            batch_size: batch size
+        
+        Returns:
+            ppl: the perplexity on dev sentences
+        """
+
+        cum_loss = 0.
+        cum_tgt_words = 0.
+
+        # you may want to wrap the following code using a context manager provided
+        # by the NN library to signal the backend to not to keep gradient information
+        # e.g., `torch.no_grad()`
+
+        for src_sents, tgt_sents in batch_iter(dev_data, batch_size):
+            loss = self.get_loss(src_sents, tgt_sents).cpu().detach().numpy().sum()
+
+            cum_loss += loss
+            tgt_word_num_to_predict = sum(len(s[1:]) for s in tgt_sents)  # omitting the leading `<s>`
+            cum_tgt_words += tgt_word_num_to_predict
+
+        ppl = np.exp(cum_loss / cum_tgt_words)
+
+        return ppl
 
     
 

@@ -70,3 +70,14 @@ class AttentionDecoder( nn.Module ):
 
     def initial_output( self, batch_size ):
         return Variable( torch.zeros( batch_size, self.hidden_size ), requires_grad=False )
+    
+    def save_weight( self, path ):
+        cpt  = dict()
+        cpt[ "out" ] = self.state_dict()
+        torch.save( cpt, path )
+        print( "Successfully saved embedding" )
+
+    def load_weight( self, path ):
+        cpt = torch.load( path )
+        self.load_state_dict( cpt[ "out" ] )
+        print( "Successfully loaded embedding" )
