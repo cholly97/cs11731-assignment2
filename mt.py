@@ -13,7 +13,7 @@ Semisupervised mt from one language to another
 
 class MT( object ):
 
-    def __init__( self, src_vocab, tar_vocab, encoder_embedder, decoder_embedder, generator, encoder, decoder, denoising = True ):
+    def __init__( self, src_vocab, tar_vocab, encoder_embedder, decoder_embedder, generator, encoder, decoder, denoising = True, multi_gpu = False ):
         self.encoder_embedder =encoder_embedder
         self.decoder_embedder = decoder_embedder
         self.generator = generator
@@ -22,7 +22,11 @@ class MT( object ):
         self.encoder = encoder
         self.decoder = decoder
         self.denoising = denoising 
-        weight = torch.ones( self.generator.num_output_class() ).cuda()
+        self.multi_gpu = multi_gpu
+        if multi_gpu:
+            weight = torch.ones( self.generator.module.num_output_class() ).cuda()
+        else:
+            weight = torch.ones( self.generator.num_output_class() ).cuda()
         weight[ vocab.PAD ] = 0
         self.loss = nn.NLLLoss( weight, size_average = False )
 

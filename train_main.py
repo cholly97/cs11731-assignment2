@@ -6,6 +6,8 @@ from encoder import *
 from decoder import *
 from vocab import *
 import argparse
+import os
+import torch.nn as nn
 
 def add_to_optimizer( module, param_list ):
     for para in module.parameters():
@@ -54,6 +56,10 @@ def train(args):
         embedder_tar.load_weight( args.embed_tar )
     else:
         [ s2t_param, t2s_param, t2t_param ] = add_to_optimizer( embedder_tar, [ s2t_param, t2s_param, t2t_param ] )
+    
+    if args.multi_gpu:
+        embedder_src = nn.DataParallel( embedder_src,device_ids=[0,1] ) 
+        embedder_tar = nn.DataParallel( embedder_tar,device_ids=[0,1] ) 
 
     "Generator"
     gen_src = EmbeddingGenerator( args.hidden_size, args.embed_size ).cuda()
@@ -69,12 +75,20 @@ def train(args):
         gen_tar_wrapper.load_weight( args.gen_tar ) 
     else:
         [ s2t_param, t2s_param, t2t_param ] = add_to_optimizer( gen_tar_wrapper, [ s2t_param, t2s_param, t2t_param ] )
+    
+    if args.multi_gpu:
+        gen_src_wrapper = nn.DataParallel( gen_src_wrapper,device_ids=[0,1] ) 
+        gen_tar_wrapper = nn.DataParallel( gen_tar_wrapper,device_ids=[0,1] ) 
 
     "encoder"
     encoder_src = GRUEncoder( args.embed_size, args.hidden_size, 
                               bidirectional = args.encoder_bidir, layers = args.encoder_layer, dropout = args.dropout ).cuda()
+    if args.multi_gpu:
+        encoder_src = nn.DataParallel( encoder_src,device_ids=[0,1] ) 
     encoder_tar = GRUEncoder( args.embed_size, args.hidden_size, 
                               bidirectional = args.encoder_bidir, layers = args.encoder_layer, dropout = args.dropout ).cuda()
+    if args.multi_gpu:
+        encoder_src = nn.DataParallel( encoder_tar,device_ids=[0,1] ) 
 
     [ s2s_param, s2t_param, t2s_param ] = add_to_optimizer( encoder_src, [ s2s_param, s2t_param, t2s_param ] )
     [ s2t_param, t2s_param, t2t_param ] = add_to_optimizer( encoder_tar, [ s2t_param, t2s_param, t2t_param ] )
@@ -82,15 +96,18 @@ def train(args):
     "Decoder"
     decoder_src = AttentionDecoder( args.embed_size, args.hidden_size, 1, args.dropout, input_feed = True ).cuda()
     decoder_tar = AttentionDecoder( args.embed_size, args.hidden_size, 1, args.dropout, input_feed = True ).cuda()
+    if args.multi_gpu:
+        decoder_src = nn.DataParallel( decoder_src,device_ids=[0,1] ) 
+        decoder_tar = nn.DataParallel( decoder_tar,device_ids=[0,1] ) 
 
     [ s2s_param, s2t_param, t2s_param ] = add_to_optimizer( decoder_src, [ s2s_param, s2t_param, t2s_param ] )
     [ s2t_param, t2s_param, t2t_param ] = add_to_optimizer( decoder_tar, [ s2t_param, t2s_param, t2t_param ] )
 
     "Translators"
-    s2s_model = MT( vocab_src, vocab_src, embedder_src, embedder_src, gen_src_wrapper, encoder_src, decoder_src, denoising=True )
-    t2t_model = MT( vocab_tar, vocab_tar, embedder_tar, embedder_tar, gen_tar_wrapper, encoder_tar, decoder_tar, denoising=True )
-    s2t_model = MT( vocab_src, vocab_tar, embedder_src, embedder_tar, gen_tar_wrapper, encoder_src, decoder_tar, denoising=False )
-    t2s_model = MT( vocab_tar, vocab_src, embedder_tar, embedder_src, gen_src_wrapper, encoder_tar, decoder_src, denoising=False )
+    s2s_model = MT( vocab_src, vocab_src, embedder_src, embedder_src, gen_src_wrapper, encoder_src, decoder_src, denoising=True, multi_gpu = args.multi_gpu )
+    t2t_model = MT( vocab_tar, vocab_tar, embedder_tar, embedder_tar, gen_tar_wrapper, encoder_tar, decoder_tar, denoising=True, multi_gpu = args.multi_gpu )
+    s2t_model = MT( vocab_src, vocab_tar, embedder_src, embedder_tar, gen_tar_wrapper, encoder_src, decoder_tar, denoising=False, multi_gpu = args.multi_gpu )
+    t2s_model = MT( vocab_tar, vocab_src, embedder_tar, embedder_src, gen_src_wrapper, encoder_tar, decoder_src, denoising=False, multi_gpu = args.multi_gpu )
 
     "optimizers"
     s2s_optimizer = torch.optim.Adam( s2s_param, lr=args.lr )
@@ -132,8 +149,8 @@ def train(args):
         optimizer.step()
         return res
     
-    def train_step_backtranslate( mt, optimizer, src_sents ):
-        tar_sents = mt.greedy( src_sents, 2, mode = False )
+    def train_step_backtranslate( mt, optimizer, src_sents, max_ratio ):
+        tar_sents = mt.greedy( src_sents, max_ratio, mode = False )
         res = train_step( mt, optimizer, src_sents, tar_sents )
         return res
 
@@ -152,7 +169,9 @@ def train(args):
 
             batch_size = len(src_sents)
 
-            # train_step( s2s_model, s2s_optimizer, src_sents, src_sent )
+            srclen = max( map( len, src_sents ) )
+            tar_len = max( map( len, tgt_sents ) )
+            print( "SRCLEN {} TARLEN {}".format( srclen, tar_len ) )
 
 
             model = s2t_model
@@ -166,11 +185,11 @@ def train(args):
             print( "finish t2s" )
             loss = -train_step( model, s2t_optimizer, src_sents, tgt_sents )
 
-            train_step_backtranslate( s2t_model, s2t_optimizer, src_sents )
+            train_step_backtranslate( s2t_model, s2t_optimizer, src_sents, 2 )
             print( "finish s2t back" )
-            train_step_backtranslate( t2s_model, t2s_optimizer, tgt_sents )
+            train_step_backtranslate( t2s_model, t2s_optimizer, tgt_sents, 0.8 )
             print( "finish t2s back" )
-
+            os.system( "nvidia-smi" )
             report_loss += loss
             cum_loss += loss
 
@@ -318,7 +337,9 @@ def parse_arguments():
     parser.add_argument('--encoder-bidir', dest='encoder_bidir', type=int,
                         default=1, help="is encoder bidirectional") 
     parser.add_argument('--encoder-layer', dest='encoder_layer', type=int,
-                        default=1, help="is encoder layers")    
+                        default=1, help="is encoder layers") 
+    parser.add_argument('--multi-gpu', dest='multi_gpu', type=int,
+                        default=0, help="is encoder layers")  
     return parser.parse_args()         
 
 if __name__ == '__main__':
