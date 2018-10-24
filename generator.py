@@ -44,9 +44,9 @@ class EmbeddingGenerator( nn.Module ):
 
     def forward( self, hidden, embedding ):
         emb = self.hidden2embedding( hidden )
-        word_scores = F.linear( emb, embeddings.weight[ 1:, : ] )
+        word_scores = F.linear( emb, embedding.out.weight[ 1:, : ] )
         special_scores = self.special_out( emb )
-        scores = torch.cat( ( sprcial_scores, word_scores ), dim = 1 )
+        scores = torch.cat( ( special_scores, word_scores ), dim = 1 )
         return self.logsoftmax( scores )
 
 class WrapperEmbeddingGenerator( nn.Module ):

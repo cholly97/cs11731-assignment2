@@ -39,8 +39,12 @@ def train(args):
     t2s_param = []
 
     "Embed"
-    embedder_src = Embedder( vocab_src.dict_size(), args.embed_size ).cuda()
-    embedder_tar = Embedder( vocab_tar.dict_size(), args.embed_size ).cuda()
+    if args.encoder_bidir:
+        embedder_src = Embedder( vocab_src.dict_size(), args.embed_size ).cuda()
+        embedder_tar = Embedder( vocab_tar.dict_size(), args.embed_size ).cuda()
+    else:
+        embedder_src = Embedder( vocab_src.dict_size(), args.embed_size ).cuda()
+        embedder_tar = Embedder( vocab_tar.dict_size(), args.embed_size ).cuda()
 
     if args.embed_src != "":
         embedder_src.load_weight( args.embed_src )
@@ -154,11 +158,18 @@ def train(args):
             model = s2t_model
             # (batch_size)
             train_step( s2s_model, s2s_optimizer, src_sents, src_sents )
-            train_step( t2t_model, t2t_optimizer, tar_sents, tar_sents )  
-            train_step_backtranslate( s2t_model, s2t_optimizer, src_sents )
-            train_step_backtranslate( t2s_model, t2s_optimizer, tgt_sents )
-            train_step( t2s_model, t2s_optimizer, tar_sents, src_sents )
+            print( "finish s2s" )
+            train_step( t2t_model, t2t_optimizer, tgt_sents, tgt_sents )  
+            print( "finish t2t" )
+            
+            train_step( t2s_model, t2s_optimizer, tgt_sents, src_sents )
+            print( "finish t2s" )
             loss = -train_step( model, s2t_optimizer, src_sents, tgt_sents )
+
+            train_step_backtranslate( s2t_model, s2t_optimizer, src_sents )
+            print( "finish s2t back" )
+            train_step_backtranslate( t2s_model, t2s_optimizer, tgt_sents )
+            print( "finish t2s back" )
 
             report_loss += loss
             cum_loss += loss

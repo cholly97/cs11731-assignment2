@@ -1,5 +1,5 @@
 # global attention adopted from homwwork 1, only implemented general attention
-
+import torch
 import torch.nn  as nn 
 
 class GlobalAttention( nn.Module ):
@@ -28,12 +28,15 @@ class GlobalAttention( nn.Module ):
         """
         context_transposed = context.transpose( 0, 1 )
         # batch_size, len, hidden_size 
-
+        # print( "context_transpose", context_transposed.size() )
         if self.attention_type == "general":
             q = self.linear_align( query )
         else:
             q = query 
-        
+        # print( "q", q.size() )
+        align = context_transposed.bmm( q.unsqueeze( 2 ) ).squeeze( 2 )
+        # batch_size, length
+        # print( "align", align.size() )
         if mask is not None:
             align.data.masked_fill_( mask, -float( "inf" ) )
         
@@ -45,4 +48,4 @@ class GlobalAttention( nn.Module ):
         weighted_context = self.linear_context( weighted_context )
         weighted_context  = weighted_context + self.linear_query( query )
 
-        return self.tanh( weighted_context )
+        return torch.tanh( weighted_context )

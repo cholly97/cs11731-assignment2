@@ -22,7 +22,7 @@ class MT( object ):
         self.encoder = encoder
         self.decoder = decoder
         self.denoising = denoising 
-        weight = torch.ones( self.generator.num_output_class() )
+        weight = torch.ones( self.generator.num_output_class() ).cuda()
         weight[ vocab.PAD ] = 0
         self.loss = nn.NLLLoss( weight, size_average = False )
 
@@ -36,7 +36,7 @@ class MT( object ):
 
     def encode( self, sentences, mode = False ):
         self._train( mode )
-        ids, lengths = self.src_dict.sentences2ids( sentences, sos = False, eos = True )
+        ids, lengths = self.src_dict.sentences2ids( sentences, sos = False, eos = True, transpose = True )
         # add noise as indicated in the paper
         if mode and self.denoising:
             for i, length in enumerate( lengths ):
@@ -44,6 +44,7 @@ class MT( object ):
                     for it in range( length // 2 ):
                         j = random.randint( 0, length - 2 )
                         ids[ j ][ i ], ids[ j + 1 ][ i ] = ids[ j + 1 ][ i ], ids[ j ][ i ]
+        
         var_ids = Variable( torch.LongTensor( ids ), requires_grad = False, volatile = not mode ).cuda()
         hidden = self.encoder.initial_hidden( len( sentences ) ).cuda()
         hidden, context = self.encoder( var_ids, lengths, self.encoder_embedder, hidden )
@@ -74,41 +75,43 @@ class MT( object ):
         initial_output = self.decoder.initial_output(len(src)).cuda()
         input_ids, lengths = self.tar_dict.sentences2ids(trg, eos=False, sos=True)
         input_ids_var = Variable(torch.LongTensor(input_ids), requires_grad=False).cuda()
+        # print( "input ids-------------", input_ids_var.size() )
         logprobs, hidden, _ = self.decoder(input_ids_var, lengths, self.decoder_embedder, hidden, context, context_mask, initial_output, self.generator)
 
         # Compute loss
         output_ids, lengths = self.tar_dict.sentences2ids(trg, eos=True, sos=False)
         output_ids_var = Variable(torch.LongTensor(output_ids), requires_grad=False).cuda()
-        loss = self.criterion(logprobs.view(-1, logprobs.size()[-1]), output_ids_var.view(-1))
+        loss = self.loss(logprobs.view(-1, logprobs.size()[-1]), output_ids_var.view(-1))
 
         return loss
 
     def greedy( self, sentences, max_ratio, mode = False ):
         self._train( mode )
-        input_lengths = [ len( vocab.tokenize( sentence ) ) for sentence in sentences ]
-        hidden, context, context_lengths = self.encode( sentences, train )
-        context_mask = self.mask( context_lengths )
-        translation = [ [] for sentence in sentences ]
-        prev_words = len( sentences ) * [ vocab.SOS ]
-        pending = set( range( len( sentences ) ) )
-        output = self.decoder.initial_output( len( sentences ) ).cuda()
-        while len( pending ) > 0:
-            decoder_in = Variable( torch.LongTensor( [ prev_words ] ), requires_grad = False )
-            log_prob, hidden, output = self.decoder( decoder_in, [ 1 ] * len( sentences ), self.decoder_embedder,
-                                                     hidden, context, context_mask, output, self.generator )
-            prev_words = logprobs.max( dim=2 )[ 1 ].squeeze().data.cpu().numpy().tolist()
-            for i in pending.copy():
-                if prev_words[i] == data.EOS:
-                    pending.discard( i )
-                else:
-                    translations[ i ].append( prev_words[ i ] )
-                    if len( translations[ i ] ) >= max_ratio*input_lengths[ i ]:
+        with torch.no_grad():
+            input_lengths = [ len(  sentence  ) for sentence in sentences ]
+            hidden, context, context_lengths = self.encode( sentences, mode )
+            context_mask = self.mask( context_lengths )
+            translations = [ [] for sentence in sentences ]
+            prev_words = len( sentences ) * [ vocab.SOS ]
+            pending = set( range( len( sentences ) ) )
+            output = self.decoder.initial_output( len( sentences ) ).cuda()
+            while len( pending ) > 0:
+                decoder_in = Variable( torch.LongTensor( [ prev_words ] ), requires_grad = False ).view( len( sentences ), 1 )
+                log_prob, hidden, output = self.decoder( decoder_in, [ 1 ] * len( sentences ), self.decoder_embedder,
+                                                        hidden, context, context_mask, output, self.generator )
+                prev_words = log_prob.max( dim=2 )[ 1 ].squeeze().data.cpu().numpy().tolist()
+                for i in pending.copy():
+                    if prev_words[i] == vocab.EOS:
                         pending.discard( i )
-        return self.tar_dict.ids2sentences( translations )
+                    else:
+                        translations[ i ].append( prev_words[ i ] )
+                        if len( translations[ i ] ) >= max_ratio*input_lengths[ i ]:
+                            pending.discard( i )
+            return self.tar_dict.ids2sentences( translations )
 
     def beam_search( self, sentences, beam_size = 10, max_ratio = 2, mode = False ):
         batch_size = len(sentences)
-        input_lengths = [len(data.tokenize(sentence)) for sentence in sentences]
+        input_lengths = [len(sentence) for sentence in sentences]
         hidden, context, context_lengths = self.encode(sentences, train)
         translations = [[] for sentence in sentences]
         pending = set(range(batch_size))
@@ -118,7 +121,7 @@ class MT( object ):
         context_lengths *= beam_size
         context_mask = self.mask(context_lengths)
         ones = beam_size*batch_size*[1]
-        prev_words = beam_size*batch_size*[data.SOS]
+        prev_words = beam_size*batch_size*[vocab.SOS]
         output = self.decoder.initial_output(beam_size*batch_size).cuda()
 
         translation_scores = batch_size*[-float('inf')]
@@ -141,7 +144,7 @@ class MT( object ):
                     for i in range(beam_size + 1):
                         word = words[index][i]
                         score = hypotheses[index][0] + word_scores[index][i]
-                        if word != data.EOS:
+                        if word != vocab.EOS:
                             candidates.append((score, index, word))
                         elif score > translation_scores[sentence_index]:
                             translations[sentence_index] = hypotheses[index][1] + [word]

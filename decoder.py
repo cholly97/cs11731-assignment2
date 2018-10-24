@@ -22,9 +22,11 @@ class StackedGRU( nn.Module ):
     def forward( self, inputs, hidden ):
         h_1 = [] 
         for i, layer in enumerate( self.layers ):
+            # print( "inputs before", inputs.size() )
             h_1_i = layer( inputs, hidden[ i ] )
             inputs = h_1_i
-            if i+1 != self.num_layers:
+            # print( "inputs after", inputs.size() )
+            if i+1 != self.num_layers:    
                 inputs = self.dropout( inputs )
             h_1 += [ h_1_i ]
         h_1 = torch.stack( h_1 )
@@ -32,10 +34,10 @@ class StackedGRU( nn.Module ):
 
 class AttentionDecoder( nn.Module ):
 
-    def __init__( self, embed_size, hidden_size, num_layer, dropout, input_feed = True ):
+    def __init__( self, embed_size, hidden_size, num_layer, dropout, input_feed = True, encoder_bidir = True ):
         super( AttentionDecoder, self ).__init__()
         self.num_layer = num_layer
-        self.hidden_size = hidden_size
+        self.hidden_size = hidden_size # if not encoder_bidir else hidden_size * 2
         self.special_embedding = nn.Embedding( vocab.NUM_SPECIAL_SYM + 1, embed_size, padding_idx = 0 )
         self.attention = GlobalAttention( hidden_size, attention_type = "general" )
         self.input_feed = input_feed
@@ -45,11 +47,18 @@ class AttentionDecoder( nn.Module ):
 
     def forward( self, ids, lengths, word_embedder, hidden, context, context_mask, prev_output, generator ):
         # print( len( ids ), len( ids[ 0 ] ) )
-        embeddings = word_embedder( vocab.word_ids( ids ) + self.special_embedding( vocab.special_ids( ids ) ) )
+        # print( "vocab", vocab.word_ids(ids).size() )
+        # print( "special", vocab.special_ids( ids ).size() )
+        embeddings = word_embedder( vocab.word_ids(ids).cuda() ) + self.special_embedding( vocab.special_ids( ids ).cuda() )
         output = prev_output
+        # print( "output", output.size() )
+        # print( "embeddings", embeddings.size() )
+        # if self.input_feed:
+        embeddings = embeddings.permute( 1,0,2 )
         scores = []
         for emb in embeddings.split(1):
-            if self.input_feeding:
+            if self.input_feed:
+                # print( "emb", emb.size() )
                 inputs = torch.cat([emb.squeeze(0), output], 1)
             else:
                 inputs = emb.squeeze(0)

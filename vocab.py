@@ -65,7 +65,7 @@ class VocabEntry( object ):
         Returns:
             a list of sentences
         """
-        return [ self.ids2sentence(i) for i in ids ]
+        return [ self.id2single_sentence(i) for i in ids ]
 
     def vocab_size( self ):
         return len( self.id2word ) - 1
