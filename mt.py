@@ -13,14 +13,14 @@ Semisupervised mt from one language to another
 
 class MT( object ):
 
-    def __init__( self, vocab, encoder_embedder, decoder_embedder, generator, encoder, decoder, denoising = True ):
+    def __init__( self, src_vocab, tar_vocab, encoder_embedder, decoder_embedder, generator, encoder, decoder, denoising = True ):
         self.encoder_embedder =encoder_embedder
         self.decoder_embedder = decoder_embedder
-        self.generator = generator.cuda()
-        self.src_dict = vocab.src
-        self.tar_dict = vocab.tgt 
-        self.encoder = encoder.cuda()
-        self.decoder = decoder.cuda()
+        self.generator = generator
+        self.src_dict = src_vocab
+        self.tar_dict = tar_vocab
+        self.encoder = encoder
+        self.decoder = decoder
         self.denoising = denoising 
         weight = torch.ones( self.generator.num_output_class() )
         weight[ vocab.PAD ] = 0
@@ -36,10 +36,10 @@ class MT( object ):
 
     def encode( self, sentences, mode = False ):
         self._train( mode )
-        ids, lengths = self.src_dict.sentecnces2ids( sentences, sos = False, eos = True )
+        ids, lengths = self.src_dict.sentences2ids( sentences, sos = False, eos = True )
         # add noise as indicated in the paper
         if mode and self.denoising:
-            for i length in enumerate( lengths ):
+            for i, length in enumerate( lengths ):
                 if length > 2:
                     for it in range( length // 2 ):
                         j = random.randint( 0, length - 2 )
@@ -50,7 +50,7 @@ class MT( object ):
         return hidden, context, lengths
 
     def mask( self, lengths ):
-        batch_Size = len( lengths )
+        batch_size = len( lengths )
         max_length = max( lengths )
         if max_length == min( lengths ):
             return None 
@@ -60,24 +60,24 @@ class MT( object ):
                 mask[ i, j ] = 1
         return mask.cuda()
 
-    def get_loss( self, src_sentences, tar_sentences, train = False ):
+    def get_loss( self, src, trg, train = False ):
         self._train( train )
         # Check batch sizes
         if len(src) != len(trg):
             raise Exception('Sentence and hypothesis lengths do not match')
 
         # Encode
-        hidden, context, context_lengths = self.encode(src, train)
+        hidden, context, context_lengths = self.encode(src, mode = train)
         context_mask = self.mask(context_lengths)
 
         # Decode
         initial_output = self.decoder.initial_output(len(src)).cuda()
-        input_ids, lengths = self.trg_dictionary.sentences2ids(trg, eos=False, sos=True)
+        input_ids, lengths = self.tar_dict.sentences2ids(trg, eos=False, sos=True)
         input_ids_var = Variable(torch.LongTensor(input_ids), requires_grad=False).cuda()
-        logprobs, hidden, _ = self.decoder(input_ids_var, lengths, self.decoder_embeddings, hidden, context, context_mask, initial_output, self.generator)
+        logprobs, hidden, _ = self.decoder(input_ids_var, lengths, self.decoder_embedder, hidden, context, context_mask, initial_output, self.generator)
 
         # Compute loss
-        output_ids, lengths = self.trg_dictionary.sentences2ids(trg, eos=True, sos=False)
+        output_ids, lengths = self.tar_dict.sentences2ids(trg, eos=True, sos=False)
         output_ids_var = Variable(torch.LongTensor(output_ids), requires_grad=False).cuda()
         loss = self.criterion(logprobs.view(-1, logprobs.size()[-1]), output_ids_var.view(-1))
 
@@ -94,7 +94,7 @@ class MT( object ):
         output = self.decoder.initial_output( len( sentences ) ).cuda()
         while len( pending ) > 0:
             decoder_in = Variable( torch.LongTensor( [ prev_words ] ), requires_grad = False )
-            log_prob, hidden, output = self.decoder( decoder_in, [ 1 ] * len( sentences ), self.decoder_embedder
+            log_prob, hidden, output = self.decoder( decoder_in, [ 1 ] * len( sentences ), self.decoder_embedder,
                                                      hidden, context, context_mask, output, self.generator )
             prev_words = logprobs.max( dim=2 )[ 1 ].squeeze().data.cpu().numpy().tolist()
             for i in pending.copy():
@@ -106,7 +106,7 @@ class MT( object ):
                         pending.discard( i )
         return self.tar_dict.ids2sentences( translations )
 
-    def beam_search( self, sentences, beam_size = 10, max_ratio = 2, max_ratio = 2, mode = False ):
+    def beam_search( self, sentences, beam_size = 10, max_ratio = 2, mode = False ):
         batch_size = len(sentences)
         input_lengths = [len(data.tokenize(sentence)) for sentence in sentences]
         hidden, context, context_lengths = self.encode(sentences, train)
@@ -127,7 +127,7 @@ class MT( object ):
         while len(pending) > 0:
             # Each iteration should update: prev_words, hidden, output
             var = Variable(torch.LongTensor([prev_words]), requires_grad=False).cuda()
-            logprobs, hidden, output = self.decoder(var, ones, self.decoder_embeddings, hidden, context, context_mask, output, self.generator)
+            logprobs, hidden, output = self.decoder(var, ones, self.decoder_embedder, hidden, context, context_mask, output, self.generator)
             prev_words = logprobs.max(dim=2)[1].squeeze().data.cpu().numpy().tolist()
 
             word_scores, words = logprobs.topk(k=beam_size+1, dim=2, sorted=False)
@@ -161,7 +161,7 @@ class MT( object ):
                     if len(translations[sentence_index]) == 0:
                         translations[sentence_index] = hypotheses[sentence_index][1]
                         translation_scores[sentence_index] = hypotheses[sentence_index][0]
-        return self.trg_dictionary.ids2sentences(translations)
+        return self.tar_dict.ids2sentences(translations)
 
     
 

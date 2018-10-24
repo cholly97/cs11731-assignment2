@@ -23,19 +23,30 @@ class LinearGenerator( nn.Module ):
     def num_output_class( self ):
         return self.out.weight.size()[ 0 ]
 
+    def save_weight( self, path ):
+        cpt  = dict()
+        cpt[ "out" ] = self.state_dict()
+        torch.save( cpt, path )
+        print( "Successfully saved embedding" )
+
+    def load_weight( self, path ):
+        cpt = torch.load( path )
+        self.load_state_dict( cpt[ "out" ] )
+        print( "Successfully loaded embedding" )
+
 class EmbeddingGenerator( nn.Module ):
 
     def __init__( self, hidden_size, embed_size ):
         super( EmbeddingGenerator, self ).__init__()
         self.hidden2embedding = nn.Linear( hidden_size, embed_size )
         self.special_out = nn.Linear( embed_size, vocab.NUM_SPECIAL_SYM, bias = False )
-        self.logsoftmax = nn.logsoftmax()
+        self.logsoftmax = nn.LogSoftmax()
 
     def forward( self, hidden, embedding ):
         emb = self.hidden2embedding( hidden )
         word_scores = F.linear( emb, embeddings.weight[ 1:, : ] )
         special_scores = self.special_out( emb )
-        scores = torch.cat( ( sprcial_scoresm word_scores ), dim = 1 )
+        scores = torch.cat( ( sprcial_scores, word_scores ), dim = 1 )
         return self.logsoftmax( scores )
 
 class WrapperEmbeddingGenerator( nn.Module ):
@@ -49,5 +60,16 @@ class WrapperEmbeddingGenerator( nn.Module ):
         return self.embedding_generator( hidden, self.embed_out )
     
     def num_output_class( self ):
-        return self.embed_out.weight.data.size()[ 0 ] + vocab.NUM_SPECIAL_SYM - 1
+        return self.embed_out.out.weight.data.size()[ 0 ] + vocab.NUM_SPECIAL_SYM - 1
+
+    def save_weight( self, path ):
+        cpt  = dict()
+        cpt[ "out" ] = self.state_dict()
+        torch.save( cpt, path )
+        print( "Successfully saved embedding" )
+
+    def load_weight( self, path ):
+        cpt = torch.load( path )
+        self.load_state_dict( cpt[ "out" ] )
+        print( "Successfully loaded embedding" )
 

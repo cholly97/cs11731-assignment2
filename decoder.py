@@ -11,7 +11,7 @@ from torch.autograd import Variable
 class StackedGRU( nn.Module ):
 
     def __init__( self, input_size, hidden_size, layers, dropout ):
-        super( Stack, self ).__init__()
+        super( StackedGRU, self ).__init__()
         self.num_layers = layers 
         self.dropout = nn.Dropout( dropout )
         self.layers = nn.ModuleList()
@@ -32,7 +32,7 @@ class StackedGRU( nn.Module ):
 
 class AttentionDecoder( nn.Module ):
 
-    def __init__( self, embed_size, hidden_size, num_layer, dropout, input, input_feed = True ):
+    def __init__( self, embed_size, hidden_size, num_layer, dropout, input_feed = True ):
         super( AttentionDecoder, self ).__init__()
         self.num_layer = num_layer
         self.hidden_size = hidden_size
@@ -44,6 +44,7 @@ class AttentionDecoder( nn.Module ):
         self.dropout = nn.Dropout( dropout )
 
     def forward( self, ids, lengths, word_embedder, hidden, context, context_mask, prev_output, generator ):
+        # print( len( ids ), len( ids[ 0 ] ) )
         embeddings = word_embedder( vocab.word_ids( ids ) + self.special_embedding( vocab.special_ids( ids ) ) )
         output = prev_output
         scores = []

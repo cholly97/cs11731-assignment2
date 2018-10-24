@@ -4,6 +4,8 @@ import collections
 import torch
 import torch.nn as nn 
 import numpy as np 
+from collections import Counter
+from itertools import chain
 
 NUM_SPECIAL_SYM = 4
 PAD, SOS, EOS, UNK = 0,1,2,3
@@ -16,7 +18,7 @@ class VocabEntry( object ):
                 words: a list of words in the Vocab
         """
         self.id2word = [ None ] + words 
-        self.word2id = { wordL 1 + i for i, word in enumerate( words ) }
+        self.word2id = { word: 1 + i for i, word in enumerate( words ) }
 
     def single_sentence2ids( self, sentence, sos = False, eos = False ):
         """
@@ -25,17 +27,17 @@ class VocabEntry( object ):
             Returns:
                 [ ids ] of a sentence
         """
-        tokens = tokenize( sentence )
-        ids = [ NUM_SPECIAL_SYM + sellf.word2id[ word ] - 1 if word in self.word2id else UNK for word in tokens ]
+        # tokens = tokenize( sentence )
+        tokens = sentence
+        ids = [ NUM_SPECIAL_SYM + self.word2id[ word ] - 1 if word in self.word2id else UNK for word in tokens ]
         if sos: ids = [ SOS ] + ids
         if eos: ids = [ EOS ] + ids 
         return ids
     
-    def sentences2ids( self, sentence, sos = False, eos = False ):
+    def sentences2ids( self, sentences, sos = False, eos = False, transpose = False ):
         """
             Args:
                 sentences: a list of raw sentence, not processed
-
         """
         ids = [ self.single_sentence2ids( sentence, sos = sos, eos = eos ) for sentence in sentences ]
         lengths = [ len(s) for s in ids ]
@@ -43,7 +45,8 @@ class VocabEntry( object ):
         ids = [ s + [ PAD ]*( max( lengths )-len( s ) ) for s in ids ]
 
         # transpose the size from batch, length to length, batch_size
-        ids = [ [ ids[ i ][ j ] for i in range( len( ids ) ) ]  for j in range( max( lengths ) ) ]
+        if transpose:
+            ids = [ [ ids[ i ][ j ] for i in range( len( ids ) ) ]  for j in range( max( lengths ) ) ]
         return ids, lengths
 
     def id2single_sentence( self, ids ):
@@ -67,6 +70,9 @@ class VocabEntry( object ):
     def vocab_size( self ):
         return len( self.id2word ) - 1
 
+    def dict_size( self ):
+        return len( self.id2word )
+
     def add( self, word ):
         if word not in selfword2id:
             wid = self.word2id[word] = len( self.id2word )
@@ -77,15 +83,13 @@ class VocabEntry( object ):
 
     @staticmethod
     def from_corpus(corpus, size, freq_cutoff=2):
-        vocab_entry = VocabEntry()
 
         word_freq = Counter(chain(*corpus))
         valid_words = [w for w, v in word_freq.items() if v >= freq_cutoff]
         # print('number of word types: {len(word_freq)}, number of word types w/ frequency >= {freq_cutoff}: {len(valid_words)}')
 
         top_k_words = sorted(valid_words, key=lambda w: word_freq[w], reverse=True)[:size]
-        for word in top_k_words:
-            vocab_entry.add(word)
+        vocab_entry = VocabEntry( top_k_words )
 
         return vocab_entry
 
@@ -109,6 +113,7 @@ def random_embeddings( vocab_size, embed_size ):
 
 
 def tokenize( sentence ):
+    # print( sentence )
     return sentence.strip().split()
 
 def special_ids(ids ):

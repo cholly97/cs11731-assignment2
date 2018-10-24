@@ -10,10 +10,10 @@ class GRUEncoder( nn.Module ):
         super( GRUEncoder, self ).__init__()
         if bidirectional and hidden_size % 2 != 0:
             raise ValueError('The hidden dimension must be even for bidirectional encoders')
-        self.directional = 2 is bidirectional else 1
+        self.directional = 2 if bidirectional else 1
         self.bidirectional = bidirectional
         self.layers = layers
-        self.hidden_size = hidden_size // self.directional
+        self.hidden_size = hidden_size # // self.directional
         self.special_embeddings = nn.Embedding( vocab.NUM_SPECIAL_SYM + 1, embed_size, padding_idx = 0 )
         self.rnn = nn.GRU( embed_size, hidden_size, bidirectional = bidirectional, num_layers = layers, dropout = dropout )
     
@@ -26,7 +26,7 @@ class GRUEncoder( nn.Module ):
             sorted2true = sorted(range(len(lengths)), key=lambda x: true2sorted[x])
             ids = torch.stack([ids[:, i] for i in true2sorted], dim=1)
             lengths = [lengths[i] for i in true2sorted]
-        embeddings = word_embeddings(data.word_ids(ids)) + self.special_embeddings(data.special_ids(ids))
+        embeddings = word_embedder(vocab.word_ids(ids)) + self.special_embeddings(vocab.special_ids(ids))
         if is_varlen:
             embeddings = nn.utils.rnn.pack_padded_sequence(embeddings, lengths)
         output, hidden = self.rnn(embeddings, hidden)
@@ -42,4 +42,14 @@ class GRUEncoder( nn.Module ):
     def initial_hidden(self, batch_size):
         return Variable(torch.zeros(self.layers*self.directional, batch_size, self.hidden_size), requires_grad=False)
 
+    def save_weight( self, path ):
+        cpt  = dict()
+        cpt[ "out" ] = self.state_dict()
+        torch.save( cpt, path )
+        print( "Successfully saved embedding" )
+
+    def load_weight( self, path ):
+        cpt = torch.load( path )
+        self.load_state_dict( cpt[ "out" ] )
+        print( "Successfully loaded embedding" )
 
