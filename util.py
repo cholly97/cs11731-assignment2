@@ -60,12 +60,12 @@ def batch_iter(data, batch_size, shuffle=False):
         yield src_sents, tgt_sents
 
 
-def beam_search(model, test_data_src, beam_size: int, max_decoding_time_step: int):
+def beam_search(model, test_data_src, beam_size: int, max_ratio: int):
     was_training = model.training
 
     hypotheses = []
     for src_sent in tqdm(test_data_src, desc='Decoding', file=sys.stdout):
-        example_hyps = model.beam_search(src_sent, beam_size=beam_size, max_decoding_time_step=max_decoding_time_step)
+        example_hyps = model.beam_search(src_sent, beam_size=beam_size, max_ratio=max_ratio)
 
         hypotheses.append(example_hyps)
 
@@ -115,6 +115,6 @@ def compute_corpus_level_bleu_score(references, hypotheses) -> float:
         references = [ref[1:-1] for ref in references]
 
     bleu_score = corpus_bleu([[ref] for ref in references],
-                             [hyp.value for hyp in hypotheses])
+                             [hyp for hyp in hypotheses])
 
     return bleu_score

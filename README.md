@@ -13,3 +13,12 @@ python3 train_main.py --train-src <train src> --train-tar <train tar> --dev-src 
 
 ### 
 python3 train_main.py --train-src data/train.en-az.az.txt --train-tar data/train.en-az.en.txt --dev-src data/dev.en-az.az.txt --dev-tar data/dev.en-az.en.txt --batch-size 64 --valid-iter 100 --log-every 100 --vocab-src vocab/en-az.az.bin --vocab-tar vocab/en-az.en.bin --embed-size 256 --hidden-size 256 --dropout 1.0 --patience 6 --max-num-trial 3  --max-epoch 25 --lr 0.0005 --lr-decay 0.05 --encoder-bidir 1 --encoder-layer 1 --save-path az-en
+
+az-en: 3.0
+az-en (with tr): 7.1
+
+be-en: 5.4
+be-en (with ru): 11.6
+
+gl-en: 16.5
+gl-en (with pt): 22.0
