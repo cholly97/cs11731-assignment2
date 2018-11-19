@@ -19,11 +19,13 @@ def add_to_optimizer( module, param_list ):
 def train(args):
     train_data_src = read_corpus(args.train_src, source='src')
     train_data_tgt = read_corpus(args.train_tar, source='tgt')
+    train_data_src_mono = read_corpus(args.train_src_mono, source='src')
+    train_data_tgt_mono = read_corpus(args.train_tar_mono, source='tgt')
 
     dev_data_src = read_corpus(args.dev_src, source='src')
     dev_data_tgt = read_corpus(args.dev_tar, source='tgt')
 
-    train_data = list(zip(train_data_src, train_data_tgt))
+    train_data = list(zip(train_data_src, train_data_tgt, train_data_src_mono, train_data_tgt_mono))
     dev_data = list(zip(dev_data_src, dev_data_tgt))
 
     train_batch_size = int(args.batch_size)
@@ -41,26 +43,31 @@ def train(args):
     s2t_param = []
     t2s_param = []
 
-    "Embed"
-    if args.encoder_bidir:
-        embedder_src = Embedder( vocab_src.dict_size(), args.embed_size ).cuda()
-        embedder_tar = Embedder( vocab_tar.dict_size(), args.embed_size ).cuda()
-    else:
-        embedder_src = Embedder( vocab_src.dict_size(), args.embed_size ).cuda()
-        embedder_tar = Embedder( vocab_tar.dict_size(), args.embed_size ).cuda()
+    "Embed" # pretrained (and fixed), cross-lingual embeddings
+    args.embed_size = 300
+    from fasttext import FastVector
+    src_embed_path = 'embed/' + args.embed_src
+    tar_embed_path = 'embed/' + args.embed_tar
+    try:
+        vectors_src = pickle.load(open(src_embed_path, 'rb'))
+    except FileNotFoundError:
+        vectors_src = FastVector(vector_file = args.embed_src)
+        vectors_src.apply_transform(args.embed_alignment)
+        pickle.dump(vectors_src, open(src_embed_path, 'wb+'))
+    try:
+        vectors_tar = pickle.load(open(tar_embed_path, 'rb'))
+    except FileNotFoundError:
+        vectors_tar = FastVector(vector_file = args.embed_tar) # tar is en, no alignment required
+        pickle.dump(vectors_tar, open(tar_embed_path, 'wb+'))
 
-    if args.embed_src != "":
-        embedder_src.load_weight( args.embed_src )
-    else:
-        [ s2s_param, s2t_param, t2s_param ] = add_to_optimizer( embedder_src, [ s2s_param, s2t_param, t2s_param ] )
-    if args.embed_tar != "":
-        embedder_tar.load_weight( args.embed_tar )
-    else:
-        [ s2t_param, t2s_param, t2t_param ] = add_to_optimizer( embedder_tar, [ s2t_param, t2s_param, t2t_param ] )
-    
-    if args.multi_gpu:
-        embedder_src = nn.DataParallel( embedder_src,device_ids=[0,1] ) 
-        embedder_tar = nn.DataParallel( embedder_tar,device_ids=[0,1] ) 
+    src2embed = lambda word: torch.FloatTensor(vectors_src[word]) if word in vectors_src else torch.zeros(300)
+    tar2embed = lambda word: torch.FloatTensor(vectors_tar[word]) if word in vectors_tar else torch.zeros(300)
+    embedder_src = Embedder(vocab_src.dict_size(), args.embed_size,
+        nn.Embedding.from_pretrained(torch.stack([src2embed(word.lower() if word is not None else word)
+        for word in vocab_src.id2word], dim = 0), freeze = True))
+    embedder_tar = Embedder(vocab_tar.dict_size(), args.embed_size,
+        nn.Embedding.from_pretrained(torch.stack([tar2embed(word.lower() if word is not None else word)
+        for word in vocab_tar.id2word], dim = 0), freeze = True))
 
     "Generator"
     gen_src = EmbeddingGenerator( args.hidden_size, args.embed_size ).cuda()
@@ -81,18 +88,13 @@ def train(args):
         gen_src_wrapper = nn.DataParallel( gen_src_wrapper,device_ids=[0,1] ) 
         gen_tar_wrapper = nn.DataParallel( gen_tar_wrapper,device_ids=[0,1] ) 
 
-    "encoder"
-    encoder_src = GRUEncoder( args.embed_size, args.hidden_size, 
+    "encoder" # shared encoder
+    encoder = GRUEncoder( args.embed_size, args.hidden_size, 
                               bidirectional = args.encoder_bidir, layers = args.encoder_layer, dropout = args.dropout ).cuda()
     if args.multi_gpu:
-        encoder_src = nn.DataParallel( encoder_src,device_ids=[0,1] ) 
-    encoder_tar = GRUEncoder( args.embed_size, args.hidden_size, 
-                              bidirectional = args.encoder_bidir, layers = args.encoder_layer, dropout = args.dropout ).cuda()
-    if args.multi_gpu:
-        encoder_src = nn.DataParallel( encoder_tar,device_ids=[0,1] ) 
+        encoder = nn.DataParallel( encoder,device_ids=[0,1] )
 
-    [ s2s_param, s2t_param, t2s_param ] = add_to_optimizer( encoder_src, [ s2s_param, s2t_param, t2s_param ] )
-    [ s2t_param, t2s_param, t2t_param ] = add_to_optimizer( encoder_tar, [ s2t_param, t2s_param, t2t_param ] )
+    [ s2s_param, s2t_param, t2s_param, t2t_param ] = add_to_optimizer( encoder, [ s2s_param, s2t_param, t2s_param, t2t_param ] )
 
     "Decoder"
     decoder_src = AttentionDecoder( args.embed_size, args.hidden_size, 1, args.dropout, input_feed = True ).cuda()
@@ -105,10 +107,10 @@ def train(args):
     [ s2t_param, t2s_param, t2t_param ] = add_to_optimizer( decoder_tar, [ s2t_param, t2s_param, t2t_param ] )
 
     "Translators"
-    s2s_model = MT( vocab_src, vocab_src, embedder_src, embedder_src, gen_src_wrapper, encoder_src, decoder_src, denoising=True, multi_gpu = args.multi_gpu )
-    t2t_model = MT( vocab_tar, vocab_tar, embedder_tar, embedder_tar, gen_tar_wrapper, encoder_tar, decoder_tar, denoising=True, multi_gpu = args.multi_gpu )
-    s2t_model = MT( vocab_src, vocab_tar, embedder_src, embedder_tar, gen_tar_wrapper, encoder_src, decoder_tar, denoising=False, multi_gpu = args.multi_gpu )
-    t2s_model = MT( vocab_tar, vocab_src, embedder_tar, embedder_src, gen_src_wrapper, encoder_tar, decoder_src, denoising=False, multi_gpu = args.multi_gpu )
+    s2s_model = MT( vocab_src, vocab_src, embedder_src, embedder_src, gen_src_wrapper, encoder, decoder_src, denoising=True, multi_gpu = args.multi_gpu )
+    t2t_model = MT( vocab_tar, vocab_tar, embedder_tar, embedder_tar, gen_tar_wrapper, encoder, decoder_tar, denoising=True, multi_gpu = args.multi_gpu )
+    s2t_model = MT( vocab_src, vocab_tar, embedder_src, embedder_tar, gen_tar_wrapper, encoder, decoder_tar, denoising=False, multi_gpu = args.multi_gpu )
+    t2s_model = MT( vocab_tar, vocab_src, embedder_tar, embedder_src, gen_src_wrapper, encoder, decoder_src, denoising=False, multi_gpu = args.multi_gpu )
 
     "optimizers"
     s2s_optimizer = torch.optim.Adam( s2s_param, lr=args.lr )
@@ -130,8 +132,7 @@ def train(args):
             gen_tar_wrapper.save_weight( args.save_path + "/gen_tar.bin" )
 
         # save encoder
-        encoder_src.save_weight( args.save_path + "/encoder_src.bin" )
-        encoder_tar.save_weight( args.save_path + "/encoder_tar.bin" )
+        encoder.save_weight( args.save_path + "/encoder.bin" )
 
         # save decoder
         decoder_src.save_weight( args.save_path + "/decoder_src.bin" )
@@ -167,7 +168,7 @@ def train(args):
     while True:
         epoch += 1
 
-        for src_sents, tgt_sents in batch_iter(train_data, batch_size=train_batch_size, shuffle=True):
+        for src_sents, tgt_sents, src_mono_sents, tgt_mono_sents in batch_iter(train_data, batch_size=train_batch_size, shuffle=True):
             train_iter += 1
 
             batch_size = len(src_sents)
@@ -183,15 +184,24 @@ def train(args):
             print( "finish s2s" )
             train_step( t2t_model, t2t_optimizer, tgt_sents, tgt_sents )  
             print( "finish t2t" )
+            train_step( s2s_model, s2s_optimizer, src_mono_sents, src_sents )  
+            print( "finish s2s mono" )
+            train_step( t2t_model, t2t_optimizer, tgt_mono_sents, tgt_sents )  
+            print( "finish t2t mono" )
             
             train_step( t2s_model, t2s_optimizer, tgt_sents, src_sents )
             print( "finish t2s" )
             loss = train_step( model, s2t_optimizer, src_sents, tgt_sents )
+            print( "finish s2t" )
 
             train_step_backtranslate( s2t_model, s2t_optimizer, src_sents, (  tar_len / srclen ) )
             print( "finish s2t back" )
             train_step_backtranslate( t2s_model, t2s_optimizer, tgt_sents, ( srclen / tar_len ) )
             print( "finish t2s back" )
+            train_step_backtranslate( s2t_model, s2t_optimizer, src_mono_sents, (  tar_len / srclen ) )
+            print( "finish s2t back mono" )
+            train_step_backtranslate( t2s_model, t2s_optimizer, tgt_mono_sents, ( srclen / tar_len ) )
+            print( "finish t2s back mono" )
             os.system( "nvidia-smi" )
             report_loss += loss
             cum_loss += loss
@@ -343,6 +353,15 @@ def parse_arguments():
                         default=1, help="is encoder layers") 
     parser.add_argument('--multi-gpu', dest='multi_gpu', type=int,
                         default=0, help="is encoder layers")  
+    parser.add_argument('--embed-alignment', dest='embed_alignment',
+                        type=str, default="",
+                        help="embed alignment file")
+    parser.add_argument('--train-src-mono', dest='train_src_mono',
+                        type=str, default="",
+                        help="train source text monolingual")
+    parser.add_argument('--train-tar-mono', dest='train_tar_mono',
+                        type=str, default="",
+                        help="train target text monolingual")
     return parser.parse_args()         
 
 if __name__ == '__main__':

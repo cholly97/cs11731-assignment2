@@ -29,7 +29,8 @@ def input_transpose(sents, pad_token):
 
 def read_corpus(file_path, source):
     data = []
-    for line in open(file_path):
+    # for line in open(file_path):
+    for line in open(file_path, encoding = 'utf8'):
         sent = line.strip().split(' ')
         # only append <s> and </s> to the target sentence
         # if source == 'tgt':
@@ -56,8 +57,9 @@ def batch_iter(data, batch_size, shuffle=False):
         examples = sorted(examples, key=lambda e: len(e[0]), reverse=True)
         src_sents = [e[0] for e in examples]
         tgt_sents = [e[1] for e in examples]
+        tgt_sents_mono = [e[2] for e in examples]
 
-        yield src_sents, tgt_sents
+        yield src_sents, tgt_sents, tgt_sents_mono
 
 
 def beam_search(model, test_data_src, beam_size: int, max_ratio: int):
